@@ -89,6 +89,6 @@ static void householder(matrix *h, int high, int m, matrix *ort, float scale)
 		for (c = m; c <= high; c++)
 			MATRIXP(h, r, c) -= f * MATRIXP(ort, c, 0);
 	}
-	MATRIXP(ort, m, 0) = scale * MATRIXP(ort, m, 0);
+    MATRIXP(ort, m, 0) *= scale;
     MATRIXP(h, m, m-1) = scale * g;
 }
