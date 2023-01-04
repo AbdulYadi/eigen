@@ -3,22 +3,22 @@
 #include <sys/param.h>
 #include "matrix.h"
 
-static void eigenvalue_outerloop(matrix *h, matrix *eigen_vector, int norm, matrix *eigen_value, float *e, float eps);
-static void back_substitute(matrix *h, const matrix *eigen_value, const float *e, int norm, float eps);
+static void eigenvalue_outerloop(matrix *h, matrix *eigen_vector, int norm, matrix *eigen_value, matrix *e, float eps);
+static void back_substitute(matrix *h, const matrix *eigen_value, const matrix *e, int norm, float eps);
 static void cdiv(float xr, float xi, float yr, float yi, float* cdivr, float* cdivi);
 
 void schur(matrix *h, matrix *eigen_vector, matrix *eigen_value)
 {
     int low, high, row, col, k;
     float eps, norm, _z;
-    float *e;
+    matrix e;
 
     matrix_create(1, h->cols, eigen_value);
 
     low = 0;
     high = h->rows - 1;
     eps = pow(2.0, -52.0);
-    e = (float*)malloc(h->rows * sizeof(float));
+    matrix_create(h->rows, 1, &e);//single column matrix
 
     //store roots isolated by balance and compute matrix norm
     norm = 0.0;
@@ -26,20 +26,20 @@ void schur(matrix *h, matrix *eigen_vector, matrix *eigen_value)
     {
     	if (row < low || row > high) {
             MATRIXP(eigen_value, 0, row) = MATRIXP(h, row, row);
-    		e[row] = 0.0;
+            MATRIX(e, row, 0) = 0.0;
     	}
     	for (col = MAX(row - 1, 0); col < h->rows; col++)
     		norm += fabsf(MATRIXP(h, row, col));
     }
 
     //outer loop over eigenvalue index
-    eigenvalue_outerloop(h, eigen_vector, norm, eigen_value, e, eps);
+    eigenvalue_outerloop(h, eigen_vector, norm, eigen_value, &e, eps);
 
     //backsubstitute to find vectors of upper triangular form
     if (norm == 0.0)
 		return;
-    back_substitute(h, eigen_value, e, norm, eps);
-    free(e);
+    back_substitute(h, eigen_value, &e, norm, eps);
+    matrix_destroy(&e);
 
     //vectors of isolated roots
     for (row = 0; row < h->rows; row++)
@@ -63,7 +63,7 @@ void schur(matrix *h, matrix *eigen_vector, matrix *eigen_value)
     }
 }
 
-static void eigenvalue_outerloop(matrix *h, matrix *eigen_vector, int norm, matrix *eigen_value, float *e, float eps)
+static void eigenvalue_outerloop(matrix *h, matrix *eigen_vector, int norm, matrix *eigen_value, matrix *e, float eps)
 {
 ////assumption: h is squared matrix
     int n, m, k, iter, low, high, l, row, col;
@@ -94,7 +94,7 @@ static void eigenvalue_outerloop(matrix *h, matrix *eigen_vector, int norm, matr
 		if (l == n) {//one root found
             MATRIXP(h, n, n) += _exshift;
             MATRIXP(eigen_value, 0, n) = MATRIXP(h, n, n);
-            e[n] = 0.0;
+            MATRIXP(e, n, 0) = 0.0;
             n--;
             iter = 0;
 		} else if (l == n - 1) {//two roots found
@@ -116,8 +116,8 @@ static void eigenvalue_outerloop(matrix *h, matrix *eigen_vector, int norm, matr
                 MATRIXP(eigen_value, 0, n) = MATRIXP(eigen_value, 0, n-1);
 				if (_z != 0.0)
 					MATRIXP(eigen_value, 0, n) = _x - _w / _z;
-				e[n - 1] = 0.0;
-				e[n] = 0.0;
+				MATRIXP(e, n-1, 0) = 0.0;
+				MATRIXP(e, n, 0) = 0.0;
                 _x = MATRIXP(h, n, n-1);
 				_s = fabsf(_x) + fabsf(_z);
 				_p = _x / _s;
@@ -150,8 +150,8 @@ static void eigenvalue_outerloop(matrix *h, matrix *eigen_vector, int norm, matr
 			} else {// Complex pair
                 MATRIXP(eigen_value, 0, n-1) = _x + _p;
                 MATRIXP(eigen_value, 0, n) = _x + _p;
-				e[n - 1] = _z;
-				e[n] = -_z;
+				MATRIXP(e, n-1, 0) = _z;
+				MATRIXP(e, n, 0) = -_z;
 			}
 			n = n - 2;
 			iter = 0;
@@ -296,7 +296,7 @@ static void eigenvalue_outerloop(matrix *h, matrix *eigen_vector, int norm, matr
 	} // while (n >= low)
 }
 
-static void back_substitute(matrix *h, const matrix *eigen_value, const float *e, int norm, float eps)
+static void back_substitute(matrix *h, const matrix *eigen_value, const matrix *e, int norm, float eps)
 {
 ////assumption: h is squared matrix
     float _p, _q, _w, _x, _y, _t, _r, _s, _z, cdivr, cdivi, ra, sa, vr, vi;
@@ -307,7 +307,7 @@ static void back_substitute(matrix *h, const matrix *eigen_value, const float *e
     for (n = h->rows - 1; n >= 0; n--)
     {
 		_p = MATRIXP(eigen_value, 0, n);
-		_q = e[n];
+		_q = MATRIXP(e, n, 0);
 
 		// Real vector
 		if (_q == 0) {
@@ -318,12 +318,12 @@ static void back_substitute(matrix *h, const matrix *eigen_value, const float *e
 				_r = 0.0;
 				for (col = l; col <= n; col++)
                     _r += MATRIXP(h, row, col) * MATRIXP(h, col, n);
-				if (e[row] < 0.0) {
+				if (MATRIXP(e, row, 0) < 0.0) {
 					_z = _w;
 					_s = _r;
 				} else {
 					l = row;
-					if (e[row] == 0.0) {
+					if (MATRIXP(e, row, 0) == 0.0) {
 						if (_w != 0.0)
                             MATRIXP(h, row, n) = -_r / _w;
 						else
@@ -332,7 +332,7 @@ static void back_substitute(matrix *h, const matrix *eigen_value, const float *e
 					} else {
                         _x = MATRIXP(h, row, row+1);
                         _y = MATRIXP(h, row+1, row);
-                        _q = (MATRIXP(eigen_value, 0, row) - _p) * (MATRIXP(eigen_value, 0, row) - _p) + e[row] * e[row];
+                        _q = (MATRIXP(eigen_value, 0, row) - _p) * (MATRIXP(eigen_value, 0, row) - _p) + MATRIXP(e, row, 0) * MATRIXP(e, row, 0);
 						_t = (_x * _s - _z * _r) / _q;
                         MATRIXP(h, row, n) = _t;
 						if (fabsf(_x) > fabsf(_z))
@@ -374,13 +374,13 @@ static void back_substitute(matrix *h, const matrix *eigen_value, const float *e
 				}
 				_w =  MATRIXP(h, row, row) - _p;
 
-				if (e[row] < 0.0) {
+				if (MATRIXP(e, row, 0) < 0.0) {
 					_z = _w;
 					_r = ra;
 					_s = sa;
 				} else {
 					l = row;
-					if (e[row] == 0) {
+					if (MATRIXP(e, row, 0) == 0) {
                         cdiv(-ra, -sa, _w, _q, &cdivr, &cdivi);
                         MATRIXP(h, row, n-1) = cdivr;
                         MATRIXP(h, row, n) = cdivi;
@@ -388,7 +388,7 @@ static void back_substitute(matrix *h, const matrix *eigen_value, const float *e
 						// Solve complex equations
 						_x = MATRIXP(h, row, row+1);
 						_y = MATRIXP(h, row+1, row);
-						vr = (MATRIXP(eigen_value, 0, row) - _p) * (MATRIXP(eigen_value, 0, row) - _p) + e[row] * e[row] - _q * _q;
+						vr = (MATRIXP(eigen_value, 0, row) - _p) * (MATRIXP(eigen_value, 0, row) - _p) + MATRIXP(e, row, 0) * MATRIXP(e, row, 0) - _q * _q;
 						vi = (MATRIXP(eigen_value, 0, row) - _p) * 2.0 * _q;
 						if (vr == 0.0 && vi == 0.0)
 							vr = eps * norm * (fabsf(_w) + fabsf(_q) + fabsf(_x)
