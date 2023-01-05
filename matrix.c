@@ -186,6 +186,10 @@ void matrix_zero(matrix* m)
 void matrix_swap_row(matrix* m, int r1, int r2)
 {
     float *swap;
+    
+    if(r1<0 || r1>m->rows-1 || r2<0 || r2>m->rows-1 || r1==r2)
+        return;
+
     swap = (float*)malloc(m->cols * sizeof(float));
     memcpy(swap, &m->data[r1 * m->cols], m->cols * sizeof(float));
     memcpy(&m->data[r1 * m->cols], &m->data[r2 * m->cols], m->cols * sizeof(float));
